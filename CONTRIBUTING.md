@@ -1,23 +1,29 @@
 # Contributing
 
-`cloud-itonami-isic-2220` accepts contributions to the OSS blueprint, capability
-bindings, policy tests, documentation and operator model.
+`cloud-itonami-isic-2220` accepts contributions to the OSS blueprint,
+capability bindings, policy tests, documentation and operator model.
 
 ## Development
 The capability layer lives in `kotoba-lang/*` libraries. This repo holds the
 business blueprint and operator contracts.
 
 ```bash
-clojure -M:test
+clojure -M:dev:test
 clojure -M:lint
 ```
 
 ## Rules
 - Do not commit real operating, personal or credential data.
-- Keep maintenance scheduling, shipment records and disclosures behind the Plastics Plant Operations Governor.
-- Treat workflows as high-risk: add tests for equipment-control gating,
-  record integrity, safety-concern escalation and audit logging.
+- Keep robot dispatch, records and disclosures behind the Clamp-Force Governor.
+- Treat workflows as high-risk: add tests for robot-safety gating,
+  record integrity, disclosure and audit logging.
 - Document any new business-model or operator assumption in `docs/`.
+- Never fabricate a material-spec-standard citation (SAE J1545/J1885 /
+  ASTM D638 / ASTM D256 / ISO 3167 / UL 94 / ISO 294 or any other). If
+  you are not confident of a product class's requirements or a numeric
+  engineering-heuristic figure, leave it out and say so in
+  `moldworks.facts`/`moldworks.robotics` coverage/docstrings -- never
+  invent one.
 
 ## Pull Requests
 PRs should describe: what behavior changed, which policy invariant is

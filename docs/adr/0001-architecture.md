@@ -1,162 +1,144 @@
-# ADR-0001: PlasticsAdvisor ⊣ Plastics Plant Operations Governor architecture
+# ADR-0001: Molding Advisor ⊣ Clamp-Force Governor architecture
 
-## Status
-
-Accepted. `cloud-itonami-isic-2220` promoted from `:spec` to
-`:implemented` in the `kotoba-lang/industry` registry, following the
-verified fresh-scaffold protocol established by prior actors in this
-fleet.
+- Status: Accepted (2026-07-15)
+- Repository: `cloud-itonami-isic-2220` (ISIC Rev.5 `2220`)
 
 ## Context
 
-`cloud-itonami-isic-2220` publishes an OSS blueprint for
-plastics-products **plant operations coordination** (production-batch
-resin-type/weight/reject-rate data logging, injection-molding/
-extrusion/blow-molding-equipment maintenance scheduling, safety-concern
-flagging, and outbound product shipment coordination). Like every
-actor in this fleet, the blueprint alone is not an implementation:
-this ADR records the governed-actor architecture that promotes it to
-real, tested code, following the same langgraph StateGraph +
-independent Governor + Phase 0->3 rollout pattern established across
-the cloud-itonami fleet.
+Injection-molded-plastics manufacturing (mold clamping-force
+verification, per-product-class material-spec evidence verification,
+end-of-line short-shot/flash/warpage inspection, Material Certificate
+of Compliance issuance) needs the same governed-actor pattern as the
+rest of the cloud-itonami fleet: an untrusted advisor proposes; an
+independent governor may HOLD; high-stakes actuation never
+auto-commits.
 
-The closest domain analog is `cloud-itonami-isic-1610` (Sawmilling and
-planing of wood): both are back-office coordination actors for a fixed
-processing PLANT with heavy manufacturing equipment and a real
-physical safety dimension (1610: saw-blade injury/kiln-fire/wood-dust
-hazard; 2220: molding/extrusion thermal-and-pressure hazard, resin
-fume/VOC hazard). This build mirrors 1610's architecture closely --
-same four-op shape (`:log-production-batch`/`:schedule-maintenance`/
-`:flag-safety-concern`/`:coordinate-shipment`), same two-entity
-verified/registered gate structure (equipment for maintenance
-scheduling, batch for shipment coordination), same permanent-block
-pattern for a proposal that would directly actuate the production
-line (1610: `:finalize?` on a kiln schedule; 2220: `:actuate-line?` on
-the molding/extrusion line).
+The industry-registry entry for `2220` had sat at `:maturity :spec`
+placeholder (`gftdcojp/cloud-itonami-C2220`) with no repo, no business
+model, no actor. A 2026-07-15 value-chain review found `cloud-itonami-
+isic-2630` (communication-equipment/smartphone assembly) and
+`cloud-itonami-isic-2910`/`cloud-itonami-isic-2920` (motor-vehicle/body
+assembly) all implemented, with shared upstream materials stages
+already built for both -- batteries (`cloud-itonami-isic-2720`) and
+glass (`cloud-itonami-isic-2310`) -- but injection-molded PLASTICS, a
+manufacturing stage feeding BOTH chains just as directly (smartphone
+housings/back-covers/internal chassis brackets AND vehicle bumpers/
+interior trim/dashboard components are all fundamentally plastics-
+manufacturing outputs), had no actor at all.
 
-This vertical has NO pre-existing `kotoba-lang/plasticsmfg`-style
-capability library to wrap (verified: no such repo exists). This build
-therefore uses self-contained domain logic — pure functions in
-`plasticsmfg.registry` (equipment/batch verification, shipment-weight
-recompute, resin-type validation, reject-rate plausibility
-validation) are re-verified independently by the governor, the same
-"ground truth, not self-report" discipline established across prior
-actors (most directly `cloud-itonami-isic-1610`'s `sawmilling.registry`).
-
-This blueprint's own `:itonami.blueprint/governor` keyword,
-`:plastics-plant-operations-governor`, is grep-verified UNIQUE
-fleet-wide (`gh search code "plastics-plant-operations-governor"
---owner cloud-itonami`, zero hits before this repo was created).
+This vertical additionally adopts ADR-2607151600/ADR-2607152000's
+real-engineering-simulation fleet pattern NATIVELY from day one --
+mirroring how `cloud-itonami-isic-2720`/`cloud-itonami-isic-2310` were
+each built real-physics-first.
 
 ## Decision
 
-### Decision 1: Self-contained domain logic (no external plastics-manufacturing capability library to wrap)
-
-Unlike actors that delegate to pre-existing domain libraries, this
-plastics-products vertical has NO pre-existing capability library to
-wrap. The equipment/batch-verification / shipment-weight / resin-type /
-reject-rate validation functions live as pure functions in
-`plasticsmfg.registry` and are re-verified independently by
-`plasticsmfg.governor` — the same "ground truth, not self-report"
-discipline established across prior actors (most directly
-`cloud-itonami-isic-1610`'s `sawmilling.registry`).
-
-### Decision 2: Coordination, not control — scope boundary at the back-office
-
-This actor is **strictly back-office coordination** of plastics-
-products plant operations. It does NOT:
-- Control injection-molding, extrusion, or blow-molding line equipment directly
-- Make plant-safety or materials-safety decisions (exclusive to the human plant supervisor)
-- Actuate the molding/extrusion line
-
-All proposals are `:effect :propose` only. The advisor proposes; the
-governor validates; escalation paths funnel to human plant-supervisor
-approval. This is not a replacement for the supervisor's authority —
-it is a proposal-screening and documentation layer.
-
-**CRITICAL SAFETY BOUNDARY**: plastics-products manufacturing is a
-safety-critical domain (thermal/pressure hazard from molding/extrusion
-equipment, resin fume/VOC respiratory hazard, heavy material
-handling). Safety-concern flagging NEVER auto-commits. All safety
-concerns escalate immediately to human review.
-
-### Decision 3: Safety-concern escalation — always human sign-off
-
-`:flag-safety-concern` (materials-safety concern, fume/VOC hazard,
-equipment-safety concern, crew fatigue) ALWAYS escalates, never
-auto-commits. This is not a "low-stakes proposal" — it is a
-circuit-breaker that must reach human authority.
-
-### Decision 4: Two independent verified/registered gates (equipment AND batch), not one
-
-Like `cloud-itonami-isic-1610`, this vertical has TWO entity kinds
-each gating a different op: `:schedule-maintenance` independently
-verifies the referenced **equipment** unit's own `:verified?`/
-`:registered?` fields; `:coordinate-shipment` independently verifies
-the referenced **batch**'s own `:verified?`/`:registered?` fields.
-Both are the same "plant/batch record must be independently
-verified/registered before any action" HARD invariant applied to the
-two distinct record kinds this domain actually has.
-`:coordinate-shipment` additionally independently recomputes whether a
-batch's own recorded shipped-to-date weight plus the proposal's own
-claimed weight would exceed the batch's own recorded production
-weight — never taken on the advisor's self-report.
-
-### Decision 5: HARD invariants (no override)
-
-Four HARD governor invariants (elaborated into ten concrete checks in
-`plasticsmfg.governor`, mirroring `cloud-itonami-isic-1610`'s own
-elaboration of its HARD invariants into concrete checks) block
-proposals and cannot be overridden by human approval:
-1. Plant/batch record (equipment for maintenance, batch for shipment) must be independently verified/registered before any action is taken against it, and a shipment's weight must independently recompute within the batch's own logged production weight
-2. Proposals must be `:effect :propose` only (never direct equipment control)
-3. Direct molding/extrusion/blow-molding-line-equipment control or line actuation is permanently blocked
-4. The op allowlist is closed — `:log-production-batch`/`:schedule-maintenance`/`:flag-safety-concern`/`:coordinate-shipment` only
+1. Namespaces live under `moldworks.*` with the standard facts /
+   registry / store / governor / phase / advisor / operation / sim /
+   robotics / export shape.
+2. Entity is a **molding-run-batch** (a manufactured lot of
+   injection-molded parts from one mold+material combination), not a
+   finished device, a finished vehicle, or a raw material.
+3. Dual actuation on the same entity:
+   - `:actuation/ship-molding-run-batch` (robot molding-run-batch-
+     shipment dispatch draft, onward to a downstream consumer -- the
+     real dual hand-off to BOTH `cloud-itonami-isic-2630`'s
+     consumer-electronics housing integration and `cloud-itonami-
+     isic-2910`/`cloud-itonami-isic-2920`'s automotive plastics
+     integration)
+   - `:actuation/issue-material-certificate` (Material Certificate of
+     Compliance draft)
+4. Double-actuation guards use dedicated booleans
+   (`:molding-run-batch-shipped?`, `:material-certified?`), never a
+   status lifecycle (ADR-2607071320 / 6492 lesson).
+5. `molding-run-batch-shrinkage-out-of-range?` continues the fleet
+   two-sided range check family, applied here to a batch's own
+   measured shrinkage-rate deviation from its own molded material's
+   rated shrinkage factor -- a real post-mold dimensional-QA metric,
+   distinct from the physics-derived clamp-force check.
+6. `moldworks.robotics` delivers a REAL, time-stepped `physics-2d`
+   rigid-body injection-mold clamping-force verification simulation
+   from day one (not a symbolic field comparison, and not a retrofit):
+   a moving mold-half `Body2D` closes at a controlled velocity onto a
+   static mold-half `Body2D`; `:sim-peak-clamp-force-n`/`:sim-peak-
+   clamp-tonnage` are read directly off the actual simulated collision
+   trajectory. The governor HARD-holds if the mission never ran, OR if
+   an independent recompute of the batch's own `:sim-peak-clamp-
+   tonnage` falls below the batch's own `required-clamp-tonnage-tons`
+   (derived from the part's own projected area and material's own
+   cavity-pressure factor via a REAL, widely-cited plastics-processing
+   engineering heuristic -- disclosed HONESTLY as a reasoned industry
+   rule of thumb, not a single formal-standard numeric threshold,
+   UNLIKE `cellworks.robotics`'s UN 38.3 T6 13 kN ceiling which IS a
+   single formal standard's own cited number) -- never trusting the
+   mission's self-reported verdict.
+7. Material-spec scheme catalog (`moldworks.facts`) seeds AUTOMOTIVE
+   (SAE J1545/J1885 + ASTM D638/D256 + ISO 3167) and CE-HOUSING (UL 94
+   + ISO 294) only; missing product classes (e.g. medical-device
+   housings) are uncovered, never fabricated.
+8. End-of-line defect (short-shot/flash/warpage) unresolved is
+   evaluated unconditionally so `:end-of-line-quality/screen` itself
+   can HARD-hold (parksafety ADR-2607071922 Decision 5 discipline,
+   same as `automotive.governor`'s/`cellworks.governor`'s/
+   `glassworks.governor`'s end-of-line-defect-unresolved checks).
+9. `moldworks.robotics`'s clamp-tonnage tolerance check is
+   DELIBERATELY ONE-SIDED (only under-clamping flags a HARD violation)
+   -- insufficient clamp force is the real defect-risk direction
+   (mold-half separation under injection pressure -> flash; starved
+   holding pressure in remote cavities -> short-shot), unlike
+   `glassworks.robotics`'s two-sided flexural-strength acceptance
+   band -- a disclosed, deliberate asymmetry matching the real
+   physics, not an oversight.
 
 ## Consequences
 
-(+) Plastics-products plant operations back-office now has a
-documented, governed, auditable coordination layer that funnels all
-decisions through independent validation before human approval.
+(+) The injection-molded-plastics manufacturing stage gains a forkable
+OSS operating stack with auditable governor holds, closing a gap
+common to BOTH the smartphone-assembly and vehicle-assembly value
+chains the 2026-07-15 value-chain review identified -- the SAME
+dual-downstream-hand-off shape `cloud-itonami-isic-2720`/
+`cloud-itonami-isic-2310` established for batteries and glass.
+(+) Delivers a REAL time-stepped physics simulation (not a symbolic
+comparison) as a native part of this actor's initial build, extending
+ADR-2607151600/ADR-2607152000's fleet pattern to a NEW actor rather
+than retrofitting an existing symbolic one -- and anchors its
+tolerance ceiling on a REAL, widely-cited plastics-processing
+engineering heuristic (projected-area x cavity-pressure factor),
+honestly disclosed as a moderate-confidence industry rule of thumb
+rather than a single formal-standard number.
+(+) Genuine dual-downstream hand-off value: the same molding-run-
+batch-shipment/material-certificate shape serves both
+`cloud-itonami-isic-2630` and `cloud-itonami-isic-2910`/
+`cloud-itonami-isic-2920` without this actor needing to know which
+downstream consumer a given shipment goes to.
+(-) No physical plant digital-twin tick beyond the single clamp-force
+physics check in this repo (follow-up domain data, e.g. molten-
+plastic fill/pack-hold rheology simulation, is out of scope here --
+`physics-2d` has no rheology/thermal model at all).
+(-) Material-spec-scheme coverage is a starting catalog (2 product
+classes), not exhaustive, and does not capture every product class an
+injection-molding plant might produce (e.g. medical-device housings,
+food-contact packaging).
+(-) `physics-2d` is a 2D projection with no material-stiffness/
+deformation model, and BOTH mold-halves are approximated as flat-plate
+AABBs (a disclosed simplification necessitated by `physics-2d`'s
+narrowphase) -- see `moldworks.robotics`'s own docstring for the full
+disclosure, including why this simulation's `mold-approach-travel-m`
+has NO literal-standard or measured-material anchor at all (unlike
+`cellworks.robotics`'s UN 38.3 T6 50%-deformation citation or
+`glassworks.robotics`'s measured brittle-fracture-deflection
+estimate) -- a rigid mold-clamp stop genuinely has no analogous
+deformation distance.
 
-(+) The "coordination, not control" boundary is explicit in code: all
-`:effect :propose`, all real-world actuation requires human plant-
-supervisor sign-off.
+## Related
 
-(+) Scope is bounded and verifiable: four HARD invariants (elaborated
-into ten concrete governor checks) protect against scope creep into
-unauthorized equipment operation or line actuation. Safety concerns
-are a circuit-breaker, not a threshold.
-
-(+) Safety-critical discipline is explicit: safety-concern flagging
-cannot be rate-limited, suppressed, or auto-decided by phase gate.
-Human review is mandatory.
-
-(-) Still a simulation/proposal layer, not a real plant-operations
-control system. Equipment actuation and line operation remain
-human-controlled via external channels.
-
-(-) No integration with real plant-management databases (equipment
-telemetry, batch tracking, freight dispatch) — this is a standalone
-coordinator blueprint.
-
-## Verification
-
-- `cloud-itonami-isic-2220`: `clojure -M:test` green (all tests pass;
-  see the superproject ADR and `kotoba-lang/industry` registry entry
-  for the exact `Ran N tests containing M assertions, 0 failures, 0
-  errors` output, verified from an independent fresh clone), `clojure
-  -M:lint` clean, `clojure -M:dev:run` demo narrative exercises
-  proposal submission, escalation, and every HARD-hold scenario
-  directly (not-propose-effect, unknown-op, equipment-not-verified,
-  batch-not-verified, shipment-weight-exceeded, line-actuate-blocked,
-  already-scheduled, invalid-resin-type, invalid-reject-rate).
-- All source is `.cljc` (portable ClojureScript / JVM / nbb) — no
-  JVM-only interop; the actor graph is invoked exclusively via
-  `langgraph.graph/run*` (not `.invoke`, which is not cljs-portable).
-- Audit ledger is append-only, all decisions are traced; every settled
-  request (commit or hold) leaves exactly one ledger fact.
-- `deps.edn` pins `io.github.kotoba-lang/langgraph` and
-  `io.github.kotoba-lang/langchain` via `:local/root` directly in the
-  top-level `:deps` (not only under a `:dev` alias), so a bare
-  `clojure -M:test` resolves offline inside the monorepo checkout.
+- ADR-2607011000 (robotics premise + ISIC coverage)
+- ADR-2607111600 (isic-2910 motor-vehicle promotion -- sibling
+  architecture this repo mirrors)
+- ADR-2607151600 (real engineering-simulation integration, automotive
+  pilot)
+- ADR-2607152000 (real engineering-simulation fleet extension)
+- Superproject fleet ADR for this promotion: `90-docs/adr/2607160700-
+  cloud-itonami-isic-2220-plastics.md`
+- Sibling architecture: `cloud-itonami-isic-2720` docs/adr/0001,
+  `cloud-itonami-isic-2310` docs/adr/0001
