@@ -118,7 +118,13 @@
   value) -- the SAME 'check a dedicated boolean, not status'
   discipline every prior sibling governor's guards establish, informed
   by `cloud-itonami-isic-6492`'s status-lifecycle bug
-  (ADR-2607071320)."
+  (ADR-2607071320).
+
+  A third additive guard, `handoff-malformed-violations`, HARD-holds
+  `:actuation/ship-molding-run-batch` ONLY when an OPTIONAL `:handoff`
+  record (downstream to e.g. isic-1075's packaging supply chain, see
+  `moldworks.facts`) is present under the proposal's `:value` AND is
+  malformed -- absence of `:handoff` is never itself a violation."
   (:require [moldworks.facts :as facts]
             [moldworks.registry :as registry]
             [moldworks.robotics :as robotics]
@@ -240,6 +246,28 @@
       [{:rule :already-certified
         :detail (str subject " は既に材料証明書発行済み")}])))
 
+(defn- handoff-malformed-violations
+  "HARD, but ONLY when a `:handoff` map is actually present under the
+  proposal's `:value`: verify (via `facts/handoff-record-well-formed?`)
+  that it carries every required field with a plausible value. A
+  malformed handoff would actively mislead the downstream receiving
+  actor (e.g. isic-1075), so if one is attached at all it must be
+  well-formed -- but its ABSENCE is never itself a violation, since
+  attaching a `:handoff` to this actor's shipment action is entirely
+  optional (see `moldworks.facts`'s \"Downstream Cross-Actor Handoff\"
+  section). Production wiring of a caller-supplied handoff into
+  `moldworksadvisor`'s proposal `:value` is a separate follow-up (the
+  advisor is currently a deterministic mock, same 'langgraph
+  integration deferred' caveat every sibling actor's own stub advisor
+  carries) -- this check only guards whatever `:value` the governor is
+  actually handed, whoever assembled it."
+  [{:keys [op]} proposal]
+  (when (= op :actuation/ship-molding-run-batch)
+    (let [handoff (get-in proposal [:value :handoff])]
+      (when (and (some? handoff) (not (facts/handoff-record-well-formed? handoff)))
+        [{:rule :handoff-malformed
+          :detail "ship-molding-run-batch提案に添付された:handoffレコードが必須フィールドを欠く、または数量が正の数でない"}]))))
+
 (defn check
   "Censors a Molding Advisor proposal against the governor rules.
   Returns {:ok? bool :violations [..] :confidence c :escalate? bool
@@ -252,7 +280,8 @@
                            (molding-run-batch-shrinkage-out-of-range-violations request st)
                            (end-of-line-defect-unresolved-violations request proposal st)
                            (already-shipped-violations request st)
-                           (already-certified-violations request st)))
+                           (already-certified-violations request st)
+                           (handoff-malformed-violations request proposal)))
         conf (:confidence proposal 0.0)
         low? (< conf confidence-floor)
         stakes? (boolean (high-stakes (:stake proposal)))

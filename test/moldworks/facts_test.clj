@@ -23,3 +23,19 @@
     (is (facts/required-evidence-satisfied? "AUTOMOTIVE" all))
     (is (not (facts/required-evidence-satisfied? "AUTOMOTIVE" (rest all))))
     (is (not (facts/required-evidence-satisfied? "MEDDEV" all)) "no spec-basis -> never satisfied")))
+
+;; ─────── Downstream Cross-Actor Handoff (optional, isic-2220 -> isic-1075) ───────
+
+(def ^:private well-formed-handoff
+  {:handoff/id "h-1"
+   :handoff/source-actor "cloud-itonami-isic-2220"
+   :handoff/batch-id "batch-1"
+   :handoff/product-type-id "CE-HOUSING"
+   :handoff/quantity-kg 40.0
+   :handoff/dispatched-at-iso "2026-07-17T00:00:00Z"})
+
+(deftest handoff-record-well-formed-test
+  (is (true? (facts/handoff-record-well-formed? well-formed-handoff)))
+  (is (false? (facts/handoff-record-well-formed? (dissoc well-formed-handoff :handoff/quantity-kg))))
+  (is (false? (facts/handoff-record-well-formed? (assoc well-formed-handoff :handoff/quantity-kg 0))))
+  (is (false? (facts/handoff-record-well-formed? nil))))

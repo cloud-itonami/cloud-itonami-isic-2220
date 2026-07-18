@@ -12,6 +12,7 @@
     exactly one ledger fact."
   (:require [clojure.test :refer [deftest is testing]]
             [langgraph.graph :as g]
+            [moldworks.governor :as governor]
             [moldworks.store :as store]
             [moldworks.operation :as op]))
 
@@ -196,3 +197,48 @@
       (exec-op actor "b" {:op :material-spec-rules/verify :subject "batch-2" :no-spec? true} operator)
       (is (= 2 (count (store/ledger db)))
           "one commit + one hold, both recorded"))))
+
+;; ─────── Downstream Cross-Actor Handoff (optional, isic-2220 -> isic-1075) ───────
+;;
+;; Unit-level (governor fn called directly, not through the full graph):
+;; `moldworksadvisor`'s ship-batch proposal is currently a deterministic
+;; mock that hardcodes `:value {:batch-id subject}` (same 'langgraph
+;; integration deferred' stub every sibling actor's own advisor carries)
+;; -- wiring a caller-supplied `:handoff` through the advisor into the
+;; real proposal is a separate follow-up. This governor check guards
+;; whatever `:value` it is actually handed, so it is exercised directly
+;; here rather than via `exec-op`.
+
+(def ^:private well-formed-handoff
+  {:handoff/id "h-1"
+   :handoff/source-actor "cloud-itonami-isic-2220"
+   :handoff/batch-id "batch-1"
+   :handoff/product-type-id "CE-HOUSING"
+   :handoff/quantity-kg 40.0
+   :handoff/dispatched-at-iso "2026-07-17T00:00:00Z"})
+
+(deftest handoff-malformed-violations-test
+  (testing "no :handoff at all -> no violation (attachment is optional)"
+    (let [request {:op :actuation/ship-molding-run-batch}
+          proposal {:value {}}
+          violations (#'governor/handoff-malformed-violations request proposal)]
+      (is (empty? violations))))
+
+  (testing "well-formed :handoff -> no violation"
+    (let [request {:op :actuation/ship-molding-run-batch}
+          proposal {:value {:handoff well-formed-handoff}}
+          violations (#'governor/handoff-malformed-violations request proposal)]
+      (is (empty? violations))))
+
+  (testing "malformed :handoff (missing quantity-kg) -> hard violation"
+    (let [request {:op :actuation/ship-molding-run-batch}
+          proposal {:value {:handoff (dissoc well-formed-handoff :handoff/quantity-kg)}}
+          violations (#'governor/handoff-malformed-violations request proposal)]
+      (is (seq violations))
+      (is (= :handoff-malformed (-> violations first :rule)))))
+
+  (testing "only applies to :actuation/ship-molding-run-batch"
+    (let [request {:op :actuation/issue-material-certificate}
+          proposal {:value {:handoff (dissoc well-formed-handoff :handoff/quantity-kg)}}
+          violations (#'governor/handoff-malformed-violations request proposal)]
+      (is (empty? violations)))))
