@@ -35,6 +35,10 @@ jobs:
           path: orgs/kotoba-lang/langgraph
       - uses: actions/checkout@v4
         with:
+          repository: kotoba-lang/html
+          path: orgs/kotoba-lang/html
+      - uses: actions/checkout@v4
+        with:
           repository: kotoba-lang/robotics
           path: orgs/kotoba-lang/robotics
       - uses: actions/checkout@v4
