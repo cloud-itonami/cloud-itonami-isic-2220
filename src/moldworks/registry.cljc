@@ -31,7 +31,7 @@
   Compliance itself (that is `moldworks.operation`'s `:actuation/ship-
   molding-run-batch`/`:actuation/issue-material-certificate`, always
   human-gated -- see README `Actuation`)."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (defn- unsigned-certificate
   "Every certificate this actor produces is UNSIGNED -- signature is
@@ -89,7 +89,7 @@
     (throw (ex-info "molding-run-batch-shipment: jurisdiction required" {})))
   (when (< sequence 0)
     (throw (ex-info "molding-run-batch-shipment: sequence must be >= 0" {})))
-  (let [shipment-number (str (str/upper-case jurisdiction) "-MRB-" (zero-pad sequence 6))
+  (let [shipment-number (str (str/upper jurisdiction) "-MRB-" (zero-pad sequence 6))
         record {"record_id" shipment-number
                 "kind" "molding-run-batch-shipment-draft"
                 "batch_id" batch-id
@@ -116,7 +116,7 @@
     (throw (ex-info "material-certificate: jurisdiction required" {})))
   (when (< sequence 0)
     (throw (ex-info "material-certificate: sequence must be >= 0" {})))
-  (let [certificate-number (str (str/upper-case jurisdiction) "-MCC-" (zero-pad sequence 6))
+  (let [certificate-number (str (str/upper jurisdiction) "-MCC-" (zero-pad sequence 6))
         record {"record_id" certificate-number
                 "kind" "material-certificate-draft"
                 "batch_id" batch-id
