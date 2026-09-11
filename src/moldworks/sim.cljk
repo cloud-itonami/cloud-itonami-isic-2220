@@ -1,5 +1,5 @@
 (ns moldworks.sim
-  "Demo driver -- `clojure -M:dev:run`. Walks a clean molding-run-batch
+  "Demo driver -- `kbb -M:dev:run`. Walks a clean molding-run-batch
   through intake -> material-spec requirements verification -> end-of-
   line-defect screening -> robot clamp-force-verification mission ->
   batch-shipment proposal (always escalates) -> human approval ->
