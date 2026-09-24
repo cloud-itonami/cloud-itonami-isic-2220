@@ -1,5 +1,5 @@
 (ns moldworks.registry-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [moldworks.registry :as r]))
 
 ;; ----------------------------- molding-run-batch-shrinkage-out-of-range? -----------------------------

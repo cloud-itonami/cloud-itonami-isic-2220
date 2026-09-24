@@ -3,7 +3,7 @@
   regress on: `:actuation/ship-molding-run-batch`/`:actuation/issue-
   material-certificate` must NEVER be a member of any phase's `:auto`
   set."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [moldworks.phase :as phase]))
 
 (deftest ship-molding-run-batch-never-auto-at-any-phase
