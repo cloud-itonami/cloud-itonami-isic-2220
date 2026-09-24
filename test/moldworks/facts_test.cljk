@@ -1,5 +1,5 @@
 (ns moldworks.facts-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [moldworks.facts :as facts]))
 
 (deftest automotive-has-a-spec-basis

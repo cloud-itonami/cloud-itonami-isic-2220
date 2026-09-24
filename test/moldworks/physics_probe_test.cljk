@@ -3,7 +3,7 @@
   measures (every run numeric, count = expected), that the numbers come
   from the simulation (the derived minimum platen mass really straddles
   the required tonnage), and that a changed solver would show."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [moldworks.physics-probe :as probe]
             [moldworks.robotics :as robotics]))
 
