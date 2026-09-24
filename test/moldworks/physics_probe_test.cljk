@@ -1,0 +1,48 @@
+(ns moldworks.physics-probe-test
+  "The probe is the bot's only source of \"measured\"; these pin that it
+  measures (every run numeric, count = expected), that the numbers come
+  from the simulation (the derived minimum platen mass really straddles
+  the required tonnage), and that a changed solver would show."
+  (:require [clojure.test :refer [deftest is testing]]
+            [moldworks.physics-probe :as probe]
+            [moldworks.robotics :as robotics]))
+
+(deftest probe-measures-every-run
+  (let [p (probe/probe)]
+    (is (= "itonami.physical-ai.probe.v1" (:physics-probe/schema p)))
+    (is (pos? (:count p)))
+    (is (= (:count p) (:expected p) (count (:runs p))))
+    (testing "every run carries a numeric tonnage, travel and tick count from the trajectory"
+      (doseq [r (:runs p)]
+        (is (number? (get-in r [:quantities :sim-peak-clamp-tonnage])))
+        (is (number? (get-in r [:quantities :sim-peak-clamp-travel-m])))
+        (is (pos? (get-in r [:quantities :ticks])))))))
+
+(deftest tonnage-rises-with-platen-mass-across-the-sweep
+  (let [ts (map #(get-in % [:quantities :sim-peak-clamp-tonnage]) (:runs (probe/probe)))]
+    (is (apply < ts))))
+
+(deftest tonnage-is-force-in-us-tons
+  (doseq [{q :quantities} (:runs (probe/probe))]
+    (is (< (Math/abs (- (:sim-peak-clamp-tonnage q)
+                        (/ (:sim-peak-clamp-force-n q) robotics/us-ton-force-n)))
+           1e-9))))
+
+(deftest sweep-straddles-the-required-tonnage
+  (let [outs (map :out-of-tolerance? (:runs (probe/probe)))]
+    (is (true? (first outs)) "6 t platen under-clamps the 120 in^2 part")
+    (is (false? (last outs)) "90 t platen clamps it")))
+
+(deftest derived-minimum-straddles-the-required-tonnage
+  (doseq [[k part] probe/parts]
+    (let [req (robotics/required-clamp-tonnage-tons part)
+          m (probe/min-platen-mass-kg req)
+          out? (fn [kg] (robotics/clamp-tonnage-out-of-tolerance?
+                         (merge part (robotics/clamp-telemetry-for {:clamp-unit-moving-platen-mass-kg kg}))))]
+      (is (number? m) (str k))
+      (testing (str k ": at the minimum the part is clamped; 1% lighter it is not")
+        (is (not (out? m)))
+        (is (out? (* 0.99 m)))))))
+
+(deftest bracket-that-does-not-straddle-answers-nil
+  (is (nil? (probe/min-platen-mass-kg 840.0 1.0 1000.0 10))))

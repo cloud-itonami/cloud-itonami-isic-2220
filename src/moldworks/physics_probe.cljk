@@ -1,0 +1,94 @@
+(ns moldworks.physics-probe
+  "The physical-AI bot's measurement: run this actor's REAL `physics-2d`
+  injection-mold clamp-force simulation (`moldworks.robotics/
+  simulate-clamp-force`) over a fixed sweep and print ONE EDN map of the
+  physical quantities it computed.
+
+    kbb -M:dev:physics
+
+  This is what the resident bot (hermes/profiles/physai-isic-2220/SOUL.md)
+  reads every tick. Every number is derived from a time-stepped trajectory
+  by `moldworks.robotics`, never typed in. Schema
+  `itonami.physical-ai.probe.v1`:
+
+    {:physics-probe/schema \"itonami.physical-ai.probe.v1\"
+     :repo :procedure :solver
+     :runs    [{:input {...} :quantities {...} :out-of-tolerance? bool} ...]
+     :derived {...}  ; quantities computed ACROSS runs
+     :count n :expected n}
+
+  `:count` is an evidence floor: 0 means \"could not measure\", never
+  \"nothing out of tolerance\". Exit 0 when every run produced numbers,
+  2 when any run did not."
+  (:require [moldworks.robotics :as robotics]))
+
+(def schema "itonami.physical-ai.probe.v1")
+
+(def sweep-platen-masses-kg
+  "Clamp-unit moving-platen masses swept each tick. 6000 / 40000 /
+  90000 kg are the seed batches in `moldworks.store`; 20000 and 60000
+  fill the gaps so a solver change shows as a slope change."
+  [6000.0 20000.0 40000.0 60000.0 90000.0])
+
+(def parts
+  "The two seed part families in `moldworks.store`: projected area (in^2)
+  and cavity-pressure factor (tons/in^2) exactly as the seed batches
+  record them."
+  {:dash-bracket-engineering-grade {:projected-part-area-in2 120.0 :cavity-pressure-factor-tons-per-in2 7.0}
+   :housing-easy-flow              {:projected-part-area-in2 15.0 :cavity-pressure-factor-tons-per-in2 3.5}})
+
+(def sweep-part
+  "Every run is judged against the heavier seed part (120 in^2,
+  engineering grade)."
+  :dash-bracket-engineering-grade)
+
+(defn- tonnage-at [mass-kg]
+  (:sim-peak-clamp-tonnage
+   (robotics/clamp-telemetry-for {:clamp-unit-moving-platen-mass-kg mass-kg})))
+
+(defn- run-one [mass-kg]
+  (let [part (get parts sweep-part)
+        t (robotics/clamp-telemetry-for {:clamp-unit-moving-platen-mass-kg mass-kg})]
+    {:input (merge {:clamp-unit-moving-platen-mass-kg mass-kg :part sweep-part} part)
+     :quantities t
+     :out-of-tolerance? (robotics/clamp-tonnage-out-of-tolerance? (merge part t))}))
+
+(defn min-platen-mass-kg
+  "Lightest moving-platen mass whose REAL simulated peak clamp tonnage
+  reaches `required-tons`, by bisection over the simulation (tonnage is
+  monotone in mass -- pinned by `physics-probe-test`). nil when the
+  bracket does not straddle `required-tons`."
+  ([required-tons] (min-platen-mass-kg required-tons 1.0 1.0e6 50))
+  ([required-tons lo hi iters]
+   (when (and (< (tonnage-at lo) required-tons) (>= (tonnage-at hi) required-tons))
+     (loop [lo lo hi hi i 0]
+       (if (>= i iters)
+         hi
+         (let [mid (/ (+ lo hi) 2.0)]
+           (if (>= (tonnage-at mid) required-tons)
+             (recur lo mid (inc i))
+             (recur mid hi (inc i)))))))))
+
+(defn probe []
+  (let [runs (mapv run-one sweep-platen-masses-kg)
+        numeric? (fn [r] (number? (get-in r [:quantities :sim-peak-clamp-tonnage])))]
+    {:physics-probe/schema schema
+     :repo "cloud-itonami/cloud-itonami-isic-2220"
+     :procedure "Injection-mold clamp-force verification cycle (required clamp tonnage = projected area x cavity-pressure factor)"
+     :solver "physics-2d/world-step"
+     :runs runs
+     :derived (into {}
+                    (map (fn [[k part]]
+                           (let [req (robotics/required-clamp-tonnage-tons part)]
+                             [k {:required-clamp-tonnage-tons req
+                                 :min-platen-mass-kg (min-platen-mass-kg req)}])))
+                    parts)
+     :count (count (filter numeric? runs))
+     :expected (count sweep-platen-masses-kg)}))
+
+(defn -main [& _]
+  (let [p (probe)]
+    (prn p)
+    (when-not (= (:count p) (:expected p))
+      #?(:cljs (set! (.-exitCode js/process) 2)
+         :default (System/exit 2)))))
